@@ -1,0 +1,6 @@
+*.docx
+__pycache__/
+*.log
+.env
+.venv/
+.vscode/
