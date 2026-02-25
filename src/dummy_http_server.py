@@ -40,5 +40,5 @@ class SimpleLoginHandler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     server = HTTPServer(("0.0.0.0", 8080), SimpleLoginHandler)
-    print("Serving insecure HTTP login on http://localhost:8080")
+    print("Serving insecure HTTP login on http://192.168.1.18:8080")
     server.serve_forever()

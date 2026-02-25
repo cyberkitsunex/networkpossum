@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
 """
-Network Sniffer – Educational packet capture tool (Coursework Version)
 Requirements: pip install scapy
-Must be run with root/administrator privileges
 Purpose: Demonstrates packet sniffing, bandwidth monitoring, and credential exposure in lab setup
 """
 
