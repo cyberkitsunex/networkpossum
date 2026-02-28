@@ -23,7 +23,7 @@ def print_banner():
     print(Fore.YELLOW + "[!] Use responsibly and ethically.")
     print(Fore.RED + "="*70 + "\n")
 
-# check if running as admin (npcap may block raw packet capture, admin access all network interfaces)
+# Check if running as admin (npcap may block raw packet capture, admin access all network interfaces)
 def check_privileges():
     if os.name == "nt":
         print("Note: For full packet capture functionality, run as Administrator.")
