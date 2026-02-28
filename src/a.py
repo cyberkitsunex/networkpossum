@@ -1,35 +1,27 @@
+#!/usr/bin/env python3
+"""
+Network Possum - Educational Packet Sniffer
+Requires: pip install scapy
+Purpose: Demonstrates packet sniffing, bandwidth monitoring, and credential exposure
+"""
+
 import sys
-import os
 import datetime
 import json
 import threading
-from colorama import init, Fore, Style
 
-# Check if scapy is installed
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP, ARP, DNS, DNSQR, DNSRR, Ether, wrpcap, rdpcap, get_if_list
+    from scapy.all import sniff, IP, TCP, UDP, ICMP, ARP, DNS, DNSQR, DNSRR, Ether, wrpcap, get_if_list
 except ImportError:
     print("Error: scapy not found. Install with: pip install scapy")
     sys.exit(1)
 
-# Banner Function
-def print_banner():
-    init(autoreset=True)
-    print(Fore.RED + Style.BRIGHT + "="*70)
-    print(Fore.RED + Style.BRIGHT + "        ⚠ NETWORKPOSSUM - Network Sniffer Active ⚠")
-    print(Fore.RED + Style.BRIGHT + "="*70)
-    print(Fore.GREEN + "[+] Sniffing network traffic...")
-    print(Fore.GREEN + "[+] Monitoring packets in real-time...")
-    print(Fore.YELLOW + "[!] Use responsibly and ethically.")
-    print(Fore.RED + "="*70 + "\n")
-
-def check_privileges():
-    if os.name == "nt":
-        print("Note: For full packet capture functionality, run as Administrator.")
+# ─── Data Structures ────────────────────────────────────────────────
 
 class PacketNode:
     """Node for linked list storing packet info"""
-    def __init__(self, info):
+    def __init__(self, pkt, info):
+        self.pkt = pkt
         self.info = info
         self.next = None
 
@@ -38,8 +30,8 @@ class PacketLinkedList:
     def __init__(self):
         self.head = None
 
-    def add_packet(self, info):
-        node = PacketNode(info)
+    def add_packet(self, pkt, info):
+        node = PacketNode(pkt, info)
         if not self.head:
             self.head = node
         else:
@@ -48,10 +40,16 @@ class PacketLinkedList:
                 current = current.next
             current.next = node
 
-    def traverse(self):
+    def traverse_info(self):
         current = self.head
         while current:
             yield current.info
+            current = current.next
+
+    def traverse_packets(self):
+        current = self.head
+        while current:
+            yield current.pkt
             current = current.next
 
 class BandwidthMap:
@@ -76,14 +74,47 @@ class BandwidthMap:
     def all_items(self):
         return zip(self.keys, self.values)
 
-# ─── Global Variables ─────────────────────────────────────────────────────
+# ─── Globals ────────────────────────────────────────────────
 
 packet_list = PacketLinkedList()
 bandwidth_ip = BandwidthMap()
 bandwidth_proto = BandwidthMap()
-stats = BandwidthMap()  # Total packets per protocol
+stats = BandwidthMap()
+sniffing_thread = None
 
-# ─── Packet Handler ──────────────────────────────────────────────────────
+# ─── Utility Functions ──────────────────────────────────────
+
+COLORS = {"TCP":"\033[94m","UDP":"\033[96m","DNS":"\033[93m",
+          "ICMP":"\033[95m","ARP":"\033[92m","OTHER":"\033[90m",
+          "RESET":"\033[0m"}
+
+def print_banner():
+    print("="*60)
+    print("        NETWORKPOSSUM - Network Sniffer Tool")
+    print("        Educational Cybersecurity Project")
+    print("="*60)
+
+def _tcp_flags(flags):
+    mapping = {"S": "SYN", "A": "ACK", "F": "FIN", "R": "RST", "P": "PSH", "U": "URG"}
+    return "|".join(v for k,v in mapping.items() if k in str(flags))
+
+def _guess_service(sport, dport):
+    services = {80:"HTTP",443:"HTTPS",22:"SSH",21:"FTP",25:"SMTP",110:"POP3",143:"IMAP",53:"DNS"}
+    return services.get(dport) or services.get(sport) or ""
+
+def _print_packet(info, verbose=False):
+    color = COLORS.get(info.get("proto","OTHER"), "")
+    reset = COLORS["RESET"]
+    detail = info.get("detail","")
+    print(f"{color}[{info.get('proto',''):<5}]{reset} {info.get('time','')} {detail}")
+    if verbose:
+        for k,v in info.items():
+            if k not in ("proto","detail","time"):
+                print(f"   {k}: {v}")
+    if "warning" in info:
+        print(f"   {info['warning']}")
+
+# ─── Packet Handling ──────────────────────────────────────
 
 def handle_packet(pkt, verbose=False):
     ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
@@ -108,7 +139,6 @@ def handle_packet(pkt, verbose=False):
         info.update({"src_ip": ip.src, "dst_ip": ip.dst, "ttl": ip.ttl})
         bandwidth_ip.add(ip.src, len(pkt))
 
-        # TCP
         if pkt.haslayer(TCP):
             stats.add("TCP", 1)
             tcp = pkt[TCP]
@@ -135,7 +165,6 @@ def handle_packet(pkt, verbose=False):
                     info["warning"] = "⚠ Possible plaintext credentials"
             _print_packet(info, verbose)
 
-        # UDP / DNS
         elif pkt.haslayer(UDP):
             stats.add("UDP", 1)
             udp = pkt[UDP]
@@ -154,12 +183,9 @@ def handle_packet(pkt, verbose=False):
                     info["detail"] = "DNS (unknown)"
             else:
                 label = f"UDP {ip.src}:{udp.sport} → {ip.dst}:{udp.dport}"
-                if info.get("service"):
-                    label += f"  ({info['service']})"
                 info["detail"] = label
             _print_packet(info, verbose)
 
-        # ICMP
         elif pkt.haslayer(ICMP):
             stats.add("ICMP", 1)
             icmp = pkt[ICMP]
@@ -172,34 +198,25 @@ def handle_packet(pkt, verbose=False):
             info.update({"proto": f"IP/{ip.proto}", "detail": f"{ip.src} → {ip.dst}"})
             _print_packet(info, verbose)
 
-    # Save to linked list
-    packet_list.add_packet(info)
+    packet_list.add_packet(pkt, info)
     bandwidth_proto.add(info.get("proto", "OTHER"), len(pkt))
 
+# ─── Sniffing Thread ──────────────────────────────────────
 
-def _tcp_flags(flags):
-    mapping = {"S": "SYN", "A": "ACK", "F": "FIN", "R": "RST", "P": "PSH", "U": "URG"}
-    return "|".join(v for k,v in mapping.items() if k in str(flags))
+def sniff_thread(interface=None, count=0, filter=None):
+    sniff(iface=interface, count=count, filter=filter, prn=handle_packet, store=False)
 
-def _guess_service(sport, dport):
-    services = {80:"HTTP",443:"HTTPS",22:"SSH",21:"FTP",25:"SMTP",110:"POP3",143:"IMAP",53:"DNS"}
-    return services.get(dport) or services.get(sport) or ""
+def start_sniff_background(interface=None, count=0, filter=None):
+    global sniffing_thread
+    if sniffing_thread and sniffing_thread.is_alive():
+        print("Sniffer already running in background.")
+        return
+    sniffing_thread = threading.Thread(target=sniff_thread, args=(interface,count,filter))
+    sniffing_thread.daemon = True
+    sniffing_thread.start()
+    print("Started background sniffing...")
 
-COLORS = {"TCP":"\033[94m","UDP":"\033[96m","DNS":"\033[93m","ICMP":"\033[95m","ARP":"\033[92m","OTHER":"\033[90m","RESET":"\033[0m"}
-
-def _print_packet(info, verbose=False):
-    color = COLORS.get(info.get("proto","OTHER"), "")
-    reset = COLORS["RESET"]
-    detail = info.get("detail","")
-    print(f"{color}[{info.get('proto',''):<5}]{reset} {info.get('time','')} {detail}")
-    if verbose:
-        for k,v in info.items():
-            if k not in ("proto","detail","time"):
-                print(f"   {k}: {v}")
-    if "warning" in info:
-        print(f"   {info['warning']}")
-
-# ─── CLI MENU ─────────────────────────────────────────────────────────────
+# ─── Stats & Utilities ──────────────────────────────────────
 
 def print_stats():
     print("\n" + "─"*50)
@@ -221,15 +238,29 @@ def list_interfaces():
     for iface in get_if_list():
         print(f"  {iface}")
 
-def sniff_thread(interface=None, count=0, filter=None):
-    sniff(iface=interface, count=count, filter=filter, prn=handle_packet, store=False)
+def export_logs():
+    json_file = input("Enter JSON filename (e.g., logs.json): ").strip()
+    pcap_file = input("Enter PCAP filename (e.g., capture.pcap): ").strip()
+
+    packet_data = list(packet_list.traverse_info())
+    packets = list(packet_list.traverse_packets())
+
+    if json_file:
+        with open(json_file, "w") as f:
+            json.dump(packet_data, f, indent=2, default=str)
+        print(f"Saved JSON log → {json_file}")
+
+    if pcap_file:
+        wrpcap(pcap_file, packets)
+        print(f"Saved PCAP → {pcap_file}")
+
+# ─── Main Menu ──────────────────────────────────────
 
 def main():
-    check_privileges()
     while True:
         print_banner()
         print("\n=== Network Sniffer Menu ===")
-        print("1. Start Live Capture")
+        print("1. Start Live Capture (background)")
         print("2. Show Stats & Bandwidth")
         print("3. List Interfaces")
         print("4. Export Logs to JSON/PCAP")
@@ -240,28 +271,13 @@ def main():
             iface = input("Interface (or leave blank for all): ").strip() or None
             pkt_count = int(input("Number of packets (0=unlimited): ").strip() or 0)
             bpf_filter = input("BPF Filter (optional): ").strip() or None
-            print("\nPress Ctrl+C to stop capturing...\n")
-            try:
-                sniff_thread(iface, pkt_count, bpf_filter)
-            except KeyboardInterrupt:
-                print("\nCapture stopped.")
+            start_sniff_background(iface, pkt_count, bpf_filter)
         elif choice == "2":
             print_stats()
         elif choice == "3":
             list_interfaces()
         elif choice == "4":
-            json_file = input("Enter JSON filename (e.g., logs.json): ").strip()
-            pcap_file = input("Enter PCAP filename (e.g., capture.pcap): ").strip()
-            # JSON export
-            packet_data = list(packet_list.traverse())
-            if json_file:
-                with open(json_file, "w") as f:
-                    json.dump(packet_data, f, indent=2, default=str)
-                print(f"Saved JSON log → {json_file}")
-            # PCAP export
-            if pcap_file:
-                wrpcap(pcap_file, packet_list.traverse())
-                print(f"Saved PCAP → {pcap_file}")
+            export_logs()
         elif choice == "5":
             print("Exiting.")
             break
