@@ -23,10 +23,12 @@ def print_banner():
     print(Fore.YELLOW + "[!] Use responsibly and ethically.")
     print(Fore.RED + "="*70 + "\n")
 
+# check if running as admin (npcap may block raw packet capture, admin access all network interfaces)
 def check_privileges():
     if os.name == "nt":
         print("Note: For full packet capture functionality, run as Administrator.")
 
+# Data Structures
 class PacketNode:
     """Node for linked list storing packet info"""
     def __init__(self, info):
@@ -76,15 +78,13 @@ class BandwidthMap:
     def all_items(self):
         return zip(self.keys, self.values)
 
-# ─── Global Variables ─────────────────────────────────────────────────────
-
+# Global Variables 
 packet_list = PacketLinkedList()
 bandwidth_ip = BandwidthMap()
 bandwidth_proto = BandwidthMap()
 stats = BandwidthMap()  # Total packets per protocol
 
-# ─── Packet Handler ──────────────────────────────────────────────────────
-
+# Packet Handler 
 def handle_packet(pkt, verbose=False):
     ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
     info = {"time": ts}
@@ -176,7 +176,7 @@ def handle_packet(pkt, verbose=False):
     packet_list.add_packet(info)
     bandwidth_proto.add(info.get("proto", "OTHER"), len(pkt))
 
-
+# Helper Functions
 def _tcp_flags(flags):
     mapping = {"S": "SYN", "A": "ACK", "F": "FIN", "R": "RST", "P": "PSH", "U": "URG"}
     return "|".join(v for k,v in mapping.items() if k in str(flags))
@@ -198,8 +198,6 @@ def _print_packet(info, verbose=False):
                 print(f"   {k}: {v}")
     if "warning" in info:
         print(f"   {info['warning']}")
-
-# ─── CLI MENU ─────────────────────────────────────────────────────────────
 
 def print_stats():
     print("\n" + "─"*50)
@@ -224,17 +222,18 @@ def list_interfaces():
 def sniff_thread(interface=None, count=0, filter=None):
     sniff(iface=interface, count=count, filter=filter, prn=handle_packet, store=False)
 
+# CLI Main Menu
 def main():
     check_privileges()
+    print_banner()
     while True:
-        print_banner()
         print("\n=== Network Sniffer Menu ===")
         print("1. Start Live Capture")
         print("2. Show Stats & Bandwidth")
         print("3. List Interfaces")
         print("4. Export Logs to JSON/PCAP")
         print("5. Exit")
-        choice = input("Enter choice: ").strip()
+        choice = input("Enter your choice: ").strip()
 
         if choice == "1":
             iface = input("Interface (or leave blank for all): ").strip() or None
@@ -249,6 +248,7 @@ def main():
             print_stats()
         elif choice == "3":
             list_interfaces()
+        # traffic.log will contain JSON formatted data, you can also use .txt or .json
         elif choice == "4":
             json_file = input("Enter JSON filename (e.g., logs.json): ").strip()
             pcap_file = input("Enter PCAP filename (e.g., capture.pcap): ").strip()
@@ -258,6 +258,8 @@ def main():
                 with open(json_file, "w") as f:
                     json.dump(packet_data, f, indent=2, default=str)
                 print(f"Saved JSON log → {json_file}")
+            elif not packet_data:
+                print ("No packets captured yet. Choose 1 to Live capture.")
             # PCAP export
             if pcap_file:
                 wrpcap(pcap_file, packet_list.traverse())
