@@ -35,6 +35,7 @@ class PacketNode:
         self.info = info
         self.next = None
 
+# For Packet Storage
 class PacketLinkedList:
     """Linked list for storing captured packets"""
     def __init__(self):
@@ -56,8 +57,8 @@ class PacketLinkedList:
             yield current.info
             current = current.next
 
+# For Bandwidth Tracking
 class BandwidthMap:
-    """Custom HashMap-like class for bandwidth tracking"""
     def __init__(self):
         self.keys = []
         self.values = []
