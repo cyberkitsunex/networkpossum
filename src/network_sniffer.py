@@ -7,7 +7,7 @@ from colorama import init, Fore, Style
 
 # Check if scapy is installed
 try:
-    from scapy.all import sniff, IP, TCP, UDP, ICMP, ARP, DNS, DNSQR, DNSRR, Ether, wrpcap, rdpcap, get_if_list
+    from scapy.all import (sniff, IP, TCP, UDP, ICMP, ARP, DNS, DNSQR, DNSRR, Ether, wrpcap, rdpcap, get_if_list)
 except ImportError:
     print("Error: scapy not found. Install with: pip install scapy")
     sys.exit(1)
@@ -23,7 +23,7 @@ def print_banner():
     print(Fore.YELLOW + "[!] Use responsibly and ethically.")
     print(Fore.RED + "="*70 + "\n")
 
-# Check if running as admin (npcap may block raw packet capture, admin access all network interfaces)
+# Check if running as admin
 def check_privileges():
     if os.name == "nt":
         print("Note: For full packet capture functionality, run as Administrator.")
@@ -35,7 +35,6 @@ class PacketNode:
         self.info = info
         self.next = None
 
-# For Packet Storage
 class PacketLinkedList:
     """Linked list for storing captured packets"""
     def __init__(self):
@@ -57,7 +56,6 @@ class PacketLinkedList:
             yield current.info
             current = current.next
 
-# For Bandwidth Tracking
 class BandwidthMap:
     def __init__(self):
         self.keys = []
@@ -90,26 +88,22 @@ def handle_packet(pkt, verbose=False):
     ts = datetime.datetime.now().strftime("%H:%M:%S.%f")[:-3]
     info = {"time": ts}
 
-    # Ethernet
     if pkt.haslayer(Ether):
         info["src_mac"] = pkt[Ether].src
         info["dst_mac"] = pkt[Ether].dst
 
-    # ARP
     if pkt.haslayer(ARP):
         stats.add("ARP", 1)
         arp = pkt[ARP]
         op = "REQUEST" if arp.op == 1 else "REPLY"
         info.update({"proto": "ARP", "detail": f"{op} {arp.psrc} → {arp.pdst}"})
         _print_packet(info)
-    
-    # IP
+
     elif pkt.haslayer(IP):
         ip = pkt[IP]
         info.update({"src_ip": ip.src, "dst_ip": ip.dst, "ttl": ip.ttl})
         bandwidth_ip.add(ip.src, len(pkt))
 
-        # TCP
         if pkt.haslayer(TCP):
             stats.add("TCP", 1)
             tcp = pkt[TCP]
@@ -129,14 +123,12 @@ def handle_packet(pkt, verbose=False):
                 label += f"  {payload_len}B"
             info["detail"] = label
 
-            # Credential exposure (HTTP dummy check)
             if tcp.dport == 80 or tcp.sport == 80:
                 payload = bytes(tcp.payload).decode(errors="ignore")
                 if "username=" in payload or "password=" in payload:
                     info["warning"] = "⚠ Possible plaintext credentials"
             _print_packet(info, verbose)
 
-        # UDP / DNS
         elif pkt.haslayer(UDP):
             stats.add("UDP", 1)
             udp = pkt[UDP]
@@ -160,20 +152,18 @@ def handle_packet(pkt, verbose=False):
                 info["detail"] = label
             _print_packet(info, verbose)
 
-        # ICMP
         elif pkt.haslayer(ICMP):
             stats.add("ICMP", 1)
             icmp = pkt[ICMP]
             types = {0: "Echo Reply", 8: "Echo Request", 3: "Dest Unreachable", 11: "Time Exceeded", 5: "Redirect"}
             info.update({"proto": "ICMP", "detail": f"ICMP {types.get(icmp.type, f'type={icmp.type}')} {ip.src} → {ip.dst}"})
             _print_packet(info, verbose)
-        
+
         else:
             stats.add("OTHER", 1)
             info.update({"proto": f"IP/{ip.proto}", "detail": f"{ip.src} → {ip.dst}"})
             _print_packet(info, verbose)
 
-    # Save to linked list
     packet_list.add_packet(info)
     bandwidth_proto.add(info.get("proto", "OTHER"), len(pkt))
 
@@ -200,6 +190,7 @@ def _print_packet(info, verbose=False):
     if "warning" in info:
         print(f"   {info['warning']}")
 
+# Stats Summary
 def print_stats():
     print("\n" + "─"*50)
     print("Packet Summary")
@@ -215,15 +206,13 @@ def print_stats():
         print(f"{proto:<6}: {bw} bytes")
     print("─"*50)
 
+# List Interfaces
 def list_interfaces():
     print("Available Interfaces:")
     for iface in get_if_list():
         print(f"  {iface}")
 
-def sniff_thread(interface=None, count=0, filter=None):
-    sniff(iface=interface, count=count, filter=filter, prn=handle_packet, store=False)
-
-# CLI Main Menu
+# Main Menu
 def main():
     check_privileges()
     print_banner()
@@ -241,27 +230,32 @@ def main():
             pkt_count = int(input("Number of packets (0=unlimited): ").strip() or 0)
             bpf_filter = input("BPF Filter (optional): ").strip() or None
             print("\nPress Ctrl+C to stop capturing...\n")
+
+            sniff_thread_instance = threading.Thread(
+                target=sniff,
+                kwargs={"iface": iface, "count": pkt_count, "filter": bpf_filter, "prn": handle_packet, "store": False}
+            )
+            sniff_thread_instance.daemon = True
+            sniff_thread_instance.start()
+
             try:
-                sniff_thread(iface, pkt_count, bpf_filter)
+                while sniff_thread_instance.is_alive():
+                    sniff_thread_instance.join(timeout=1)
             except KeyboardInterrupt:
-                print("\nCapture stopped.")
+                print("\nCapture stopped by user.")
+
         elif choice == "2":
             print_stats()
         elif choice == "3":
             list_interfaces()
-        # traffic.log will contain JSON formatted data, you can also use .txt or .json
         elif choice == "4":
             json_file = input("Enter JSON filename (e.g., logs.json): ").strip()
             pcap_file = input("Enter PCAP filename (e.g., capture.pcap): ").strip()
-            # JSON export
             packet_data = list(packet_list.traverse())
             if json_file:
                 with open(json_file, "w") as f:
                     json.dump(packet_data, f, indent=2, default=str)
                 print(f"Saved JSON log → {json_file}")
-            elif not packet_data:
-                print ("No packets captured yet. Choose 1 to Live capture.")
-            # PCAP export
             if pcap_file:
                 wrpcap(pcap_file, packet_list.traverse())
                 print(f"Saved PCAP → {pcap_file}")
