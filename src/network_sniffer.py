@@ -18,11 +18,6 @@ except ImportError:
 
 init(autoreset=True)
 
-
-# =========================
-# Banner
-# =========================
-
 def print_banner():
     print(Fore.RED + Style.BRIGHT + "="*70)
     print(Fore.RED + Style.BRIGHT + "        ⚠ NETWORKPOSSUM - Network Sniffer Active ⚠")
@@ -32,21 +27,14 @@ def print_banner():
     print(Fore.YELLOW + "[!] Use responsibly and ethically.")
     print(Fore.RED + "="*70 + "\n")
 
-
 def check_privileges():
     if os.name == "nt":
         print("Note: For full packet capture functionality, run as Administrator.\n")
-
-
-# =========================
-# Data Structures
-# =========================
 
 class PacketNode:
     def __init__(self, info):
         self.info = info
         self.next = None
-
 
 class PacketLinkedList:
     def __init__(self):
@@ -86,11 +74,6 @@ class BandwidthMap:
     def all_items(self):
         return zip(self.keys, self.values)
 
-
-# =========================
-# Globals
-# =========================
-
 packet_list = PacketLinkedList()
 bandwidth_ip = BandwidthMap()
 bandwidth_proto = BandwidthMap()
@@ -112,10 +95,6 @@ TOKEN_KEYWORDS = [
     "session", "token", "auth", "jwt", "cookie"
 ]
 
-
-# =========================
-# Packet Handler
-# =========================
 
 def handle_packet(pkt):
 
